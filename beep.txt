@@ -1,16 +1,15 @@
-
 >>> %Run main.py
 ✅ Firebase connected
 🔄 Loading family members...
 ✅ All known faces loaded
 -----------------------------------
-[1:18:20.257737873] [3055]  INFO Camera camera_manager.cpp:340 libcamera v0.6.0+rpt20251202
-[1:18:20.331284813] [3075]  INFO IPAProxy ipa_proxy.cpp:180 Using tuning file /usr/share/libcamera/ipa/rpi/vc4/imx708.json
-[1:18:20.344985206] [3075]  INFO Camera camera_manager.cpp:223 Adding camera '/base/soc/i2c0mux/i2c@1/imx708@1a' for pipeline handler rpi/vc4
-[1:18:20.345061743] [3075]  INFO RPI vc4.cpp:445 Registered camera /base/soc/i2c0mux/i2c@1/imx708@1a to Unicam device /dev/media0 and ISP device /dev/media2
-[1:18:20.345131612] [3075]  INFO RPI pipeline_base.cpp:1111 Using configuration file '/usr/share/libcamera/pipeline/rpi/vc4/rpi_apps.yaml'
-[1:18:20.364266327] [3055]  INFO Camera camera.cpp:1215 configuring streams: (0) 640x480-XBGR8888/sRGB (1) 1536x864-SBGGR10_CSI2P/RAW
-[1:18:20.364734248] [3075]  INFO RPI vc4.cpp:620 Sensor: /base/soc/i2c0mux/i2c@1/imx708@1a - Selected sensor format: 1536x864-SBGGR10_1X10/RAW - Selected unicam format: 1536x864-pBAA/RAW
+[1:28:48.172925002] [3159]  INFO Camera camera_manager.cpp:340 libcamera v0.6.0+rpt20251202
+[1:28:48.208308937] [3172]  INFO IPAProxy ipa_proxy.cpp:180 Using tuning file /usr/share/libcamera/ipa/rpi/vc4/imx708.json
+[1:28:48.215478385] [3172]  INFO Camera camera_manager.cpp:223 Adding camera '/base/soc/i2c0mux/i2c@1/imx708@1a' for pipeline handler rpi/vc4
+[1:28:48.215533347] [3172]  INFO RPI vc4.cpp:445 Registered camera /base/soc/i2c0mux/i2c@1/imx708@1a to Unicam device /dev/media0 and ISP device /dev/media2
+[1:28:48.215573828] [3172]  INFO RPI pipeline_base.cpp:1111 Using configuration file '/usr/share/libcamera/pipeline/rpi/vc4/rpi_apps.yaml'
+[1:28:48.225283736] [3159]  INFO Camera camera.cpp:1215 configuring streams: (0) 640x480-XBGR8888/sRGB (1) 1536x864-SBGGR10_CSI2P/RAW
+[1:28:48.225885686] [3172]  INFO RPI vc4.cpp:620 Sensor: /base/soc/i2c0mux/i2c@1/imx708@1a - Selected sensor format: 1536x864-SBGGR10_1X10/RAW - Selected unicam format: 1536x864-pBAA/RAW
 📷 Camera started
 ⚠ Stranger detected!
 Traceback (most recent call last):
@@ -38,7 +37,7 @@ Traceback (most recent call last):
     _helpers.require_status_code(response, (http.client.OK,), self._get_status_code)
   File "/home/tasha_-03/.local/lib/python3.13/site-packages/google/cloud/storage/_media/_helpers.py", line 105, in require_status_code
     raise InvalidResponse(
-google.cloud.storage.exceptions.InvalidResponse: ('Request failed with status code', 400, 'Expected one of', <HTTPStatus.OK: 200>)
+google.cloud.storage.exceptions.InvalidResponse: ('Request failed with status code', 404, 'Expected one of', <HTTPStatus.OK: 200>)
 
 During handling of the above exception, another exception occurred:
 
@@ -53,18 +52,18 @@ Traceback (most recent call last):
     _raise_from_invalid_response(exc)
   File "/home/tasha_-03/.local/lib/python3.13/site-packages/google/cloud/storage/blob.py", line 5158, in _raise_from_invalid_response
     raise exceptions.from_http_status(response.status_code, message, response=response)
-google.api_core.exceptions.BadRequest: 400 POST https://storage.googleapis.com/upload/storage/v1/b/YOUR_PROJECT_ID.appspot.com/o?uploadType=multipart: {
+google.api_core.exceptions.NotFound: 404 POST https://storage.googleapis.com/upload/storage/v1/b/fyp2-92b3f.appspot.com/o?uploadType=multipart: {
   "error": {
-    "code": 400,
-    "message": "Invalid bucket name: 'YOUR_PROJECT_ID.appspot.com'",
+    "code": 404,
+    "message": "The specified bucket does not exist.",
     "errors": [
       {
-        "message": "Invalid bucket name: 'YOUR_PROJECT_ID.appspot.com'",
+        "message": "The specified bucket does not exist.",
         "domain": "global",
-        "reason": "invalid"
+        "reason": "notFound"
       }
     ]
   }
 }
-: ('Request failed with status code', 400, 'Expected one of', <HTTPStatus.OK: 200>)
+: ('Request failed with status code', 404, 'Expected one of', <HTTPStatus.OK: 200>)
 >>> 
