@@ -15,7 +15,7 @@ from firebase_admin import credentials, firestore, storage
 cred = credentials.Certificate("firebase_key.json")
 
 firebase_admin.initialize_app(cred, {
-    'storageBucket': 'fyp2-92b3f.appspot.com'
+    'storageBucket': 'fyp2-92b3f.firebasestorage.app'
 })
 
 db = firestore.client()
@@ -36,7 +36,6 @@ docs = db.collection("family_members").stream()
 
 for doc in docs:
     data = doc.to_dict()
-
     name = data.get("name")
     image_url = data.get("image_url")
 
@@ -61,7 +60,7 @@ print("✅ All known faces loaded")
 print("-----------------------------------")
 
 # =====================================
-# 📷 CAMERA SETUP (Picamera2)
+# 📷 CAMERA SETUP
 # =====================================
 
 picam2 = Picamera2()
@@ -73,15 +72,34 @@ picam2.start()
 print("📷 Camera started")
 
 # =====================================
-# 🔥 STRANGER DETECTION LOOP
+# 🔥 OPTIMIZATION SETTINGS
+# =====================================
+
+process_this_frame = 0
+last_alert_time = None
+
+# =====================================
+# 🔥 MAIN LOOP
 # =====================================
 
 while True:
     frame = picam2.capture_array()
 
-    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    process_this_frame += 1
 
-    face_locations = face_recognition.face_locations(rgb_frame)
+    # Only process every 3rd frame (BIG speed boost)
+    if process_this_frame % 3 != 0:
+        cv2.imshow("CCTV Camera", frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+        continue
+
+    # Resize for faster processing
+    small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+    rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
+
+    # Use HOG (lighter than CNN)
+    face_locations = face_recognition.face_locations(rgb_frame, model="hog")
     face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
 
     for face_encoding, face_location in zip(face_encodings, face_locations):
@@ -98,13 +116,16 @@ while True:
 
         if len(face_distances) > 0:
             best_match_index = np.argmin(face_distances)
-
             if matches[best_match_index]:
                 name = known_face_names[best_match_index]
 
+        # Scale back face location (because we resized)
         top, right, bottom, left = face_location
+        top *= 2
+        right *= 2
+        bottom *= 2
+        left *= 2
 
-        # Draw bounding box
         cv2.rectangle(frame, (left, top), (right, bottom),
                       (0, 255, 0), 2)
         cv2.putText(frame, name, (left, top - 10),
@@ -112,35 +133,40 @@ while True:
                     (0, 255, 0), 2)
 
         # =====================================
-        # 🚨 IF STRANGER DETECTED
+        # 🚨 STRANGER DETECTED
         # =====================================
 
         if name == "Stranger":
 
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"stranger_{timestamp}.jpg"
+            current_time = datetime.now()
 
-            cv2.imwrite(filename, frame)
+            # Prevent spam alerts (5 second cooldown)
+            if last_alert_time is None or (current_time - last_alert_time).seconds > 5:
 
-            print("⚠ Stranger detected!")
+                timestamp = current_time.strftime("%Y%m%d_%H%M%S")
+                filename = f"stranger_{timestamp}.jpg"
 
-            # Upload to Firebase Storage
-            blob = bucket.blob(f"strangers/{filename}")
-            blob.upload_from_filename(filename)
-            blob.make_public()
+                cv2.imwrite(filename, frame)
 
-            image_url = blob.public_url
+                print("⚠ Stranger detected!")
 
-            # Save alert in Firestore
-            db.collection("alerts").add({
-                "type": "Stranger Detected",
-                "time": timestamp,
-                "image_url": image_url
-            })
+                blob = bucket.blob(f"strangers/{filename}")
+                blob.upload_from_filename(filename)
+                blob.make_public()
 
-            print("✅ Stranger uploaded and alert saved")
+                image_url = blob.public_url
 
-            os.remove(filename)
+                db.collection("alerts").add({
+                    "type": "Stranger Detected",
+                    "time": timestamp,
+                    "image_url": image_url
+                })
+
+                print("✅ Stranger uploaded and alert saved")
+
+                os.remove(filename)
+
+                last_alert_time = current_time
 
     cv2.imshow("CCTV Camera", frame)
 
