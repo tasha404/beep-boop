@@ -15,7 +15,7 @@ from firebase_admin import credentials, firestore, storage
 cred = credentials.Certificate("firebase_key.json")
 
 firebase_admin.initialize_app(cred, {
-    'storageBucket': 'YOUR_PROJECT_ID.appspot.com'
+    'storageBucket': 'fyp2-92b3f.appspot.com'
 })
 
 db = firestore.client()
