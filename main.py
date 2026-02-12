@@ -8,7 +8,7 @@ from datetime import datetime
 from firebase_admin import credentials, firestore, storage
 
 # =====================================
-# FIREBASE SETUP
+# 🔥 FIREBASE SETUP
 # =====================================
 
 cred = credentials.Certificate("firebase_key.json")
@@ -23,20 +23,21 @@ bucket = storage.bucket()
 print("Firebase connected")
 
 # =====================================
-# LOAD KNOWN FACES
+# 🔥 LOAD REGISTERED FAMILY MEMBERS
 # =====================================
 
 known_face_encodings = []
 known_face_names = []
 
-print("Loading known faces...")
+print("Loading family members...")
 
-docs = db.collection("events").stream()
+docs = db.collection("family_members").stream()
 
 for doc in docs:
     data = doc.to_dict()
+
     name = data.get("name")
-    image_url = data.get("imageUrl")
+    image_url = data.get("image_url")   # <-- matches your Firestore
 
     if name and image_url:
         try:
@@ -47,6 +48,7 @@ for doc in docs:
             if image is None:
                 continue
 
+            # Resize if too large
             h, w = image.shape[:2]
             if w > 600:
                 scale = 600 / w
@@ -63,17 +65,17 @@ for doc in docs:
         except Exception as e:
             print(f"Error loading {name}: {e}")
 
-print("All known faces loaded")
+print("Total known faces:", len(known_face_encodings))
 print("-----------------------------------")
 
 # =====================================
-# WEBCAM SETUP
+# 📷 UGREEN WEBCAM SETUP
 # =====================================
 
 video_capture = cv2.VideoCapture("/dev/video2", cv2.CAP_V4L)
 
 if not video_capture.isOpened():
-    print("Cannot open webcam")
+    print("Cannot open UGREEN webcam")
     exit()
 
 video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
@@ -82,7 +84,7 @@ video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
 print("Webcam started")
 
 # =====================================
-# PERFORMANCE SETTINGS
+# ⚡ PERFORMANCE SETTINGS
 # =====================================
 
 frame_count = 0
@@ -90,7 +92,7 @@ encode_every_n_frames = 3
 last_alert_time = None
 
 # =====================================
-# MAIN LOOP
+# 🔥 MAIN LOOP
 # =====================================
 
 while True:
@@ -100,17 +102,18 @@ while True:
         print("Failed to grab frame")
         break
 
+    # Remove mirror effect
     frame = cv2.flip(frame, 1)
 
     frame_count += 1
 
-    # Use 0.5 instead of 0.3 (IMPORTANT FIX)
+    # Resize for detection
     small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
     rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
 
     face_locations = face_recognition.face_locations(rgb_frame, model="hog")
 
-    # Draw box always
+    # Always draw face box
     for face_location in face_locations:
         scale_back = 1 / 0.5
         top, right, bottom, left = face_location
@@ -122,7 +125,7 @@ while True:
         cv2.rectangle(frame, (left, top), (right, bottom),
                       (0, 255, 0), 2)
 
-    # Encode only every few frames
+    # Only encode every few frames (performance control)
     if frame_count % encode_every_n_frames == 0 and len(face_locations) > 0:
 
         face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
@@ -130,13 +133,16 @@ while True:
         for face_encoding, face_location in zip(face_encodings, face_locations):
 
             matches = face_recognition.compare_faces(
-                known_face_encodings, face_encoding
+                known_face_encodings,
+                face_encoding,
+                tolerance=0.5   # Adjust if needed
             )
 
             name = "Stranger"
 
             face_distances = face_recognition.face_distance(
-                known_face_encodings, face_encoding
+                known_face_encodings,
+                face_encoding
             )
 
             if len(face_distances) > 0:
@@ -155,6 +161,7 @@ while True:
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6,
                         (0, 255, 0), 2)
 
+            # 🚨 Stranger alert
             if name == "Stranger":
                 now = datetime.now()
 
