@@ -29,7 +29,7 @@ print("✅ Firebase connected")
 known_face_encodings = []
 known_face_names = []
 
-print("🔄 Loading known faces from events...")
+print("🔄 Loading known faces...")
 
 docs = db.collection("events").stream()
 
@@ -68,10 +68,10 @@ print("✅ All known faces loaded")
 print("-----------------------------------")
 
 # =====================================
-# 📷 UGREEN USB CAMERA SETUP
+# 📷 USB WEBCAM SETUP
 # =====================================
 
-video_capture = cv2.VideoCapture(0)  # change to 1 if needed
+video_capture = cv2.VideoCapture(0)
 
 video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
@@ -99,13 +99,14 @@ while True:
 
     frame_count += 1
 
-    # Skip every other frame to reduce CPU load
+    # Skip every other frame (reduce CPU)
     if frame_count % process_every_n_frames != 0:
         cv2.imshow("CCTV Camera", frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
         continue
 
+    # Resize for faster detection
     small_frame = cv2.resize(frame, (0, 0), fx=0.4, fy=0.4)
     rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
 
@@ -143,6 +144,7 @@ while True:
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8,
                         (0, 255, 0), 2)
 
+            # 🚨 Stranger logic
             if name == "Stranger":
                 now = datetime.now()
 
