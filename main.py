@@ -4,6 +4,7 @@ import face_recognition
 import firebase_admin
 import requests
 import os
+import time
 from datetime import datetime
 from picamera2 import Picamera2
 from firebase_admin import credentials, firestore, storage
@@ -72,10 +73,10 @@ picam2.start()
 print("📷 Camera started")
 
 # =====================================
-# 🔥 OPTIMIZATION SETTINGS
+# ⚡ PERFORMANCE CONTROL
 # =====================================
 
-process_this_frame = 0
+last_detection_time = 0
 last_alert_time = None
 
 # =====================================
@@ -85,20 +86,22 @@ last_alert_time = None
 while True:
     frame = picam2.capture_array()
 
-    process_this_frame += 1
+    current_time = time.time()
 
-    # Only process every 3rd frame (BIG speed boost)
-    if process_this_frame % 3 != 0:
+    # Detect every 0.7 seconds
+    if current_time - last_detection_time < 0.7:
         cv2.imshow("CCTV Camera", frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
         continue
 
+    last_detection_time = current_time
+
     # Resize for faster processing
     small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
     rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
 
-    # Use HOG (lighter than CNN)
+    # Use lighter HOG model
     face_locations = face_recognition.face_locations(rgb_frame, model="hog")
     face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
 
@@ -119,7 +122,7 @@ while True:
             if matches[best_match_index]:
                 name = known_face_names[best_match_index]
 
-        # Scale back face location (because we resized)
+        # Scale coordinates back
         top, right, bottom, left = face_location
         top *= 2
         right *= 2
@@ -138,12 +141,12 @@ while True:
 
         if name == "Stranger":
 
-            current_time = datetime.now()
+            now = datetime.now()
 
-            # Prevent spam alerts (5 second cooldown)
-            if last_alert_time is None or (current_time - last_alert_time).seconds > 5:
+            # 5-second cooldown to prevent spam
+            if last_alert_time is None or (now - last_alert_time).seconds > 5:
 
-                timestamp = current_time.strftime("%Y%m%d_%H%M%S")
+                timestamp = now.strftime("%Y%m%d_%H%M%S")
                 filename = f"stranger_{timestamp}.jpg"
 
                 cv2.imwrite(filename, frame)
@@ -166,7 +169,7 @@ while True:
 
                 os.remove(filename)
 
-                last_alert_time = current_time
+                last_alert_time = now
 
     cv2.imshow("CCTV Camera", frame)
 
