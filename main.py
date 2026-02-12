@@ -47,7 +47,7 @@ for doc in docs:
             if image is None:
                 continue
 
-            # Resize large images
+            # Resize large images for faster encoding
             h, w = image.shape[:2]
             if w > 800:
                 scale = 800 / w
@@ -68,10 +68,14 @@ print("✅ All known faces loaded")
 print("-----------------------------------")
 
 # =====================================
-# 📷 USB WEBCAM SETUP
+# 📷 UGREEN USB WEBCAM SETUP (FORCED V4L2)
 # =====================================
 
-video_capture = cv2.VideoCapture(0)
+video_capture = cv2.VideoCapture(0, cv2.CAP_V4L2)
+
+if not video_capture.isOpened():
+    print("❌ Cannot open USB webcam")
+    exit()
 
 video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
@@ -83,7 +87,7 @@ print("📷 UGREEN Webcam started")
 # =====================================
 
 frame_count = 0
-process_every_n_frames = 2
+process_every_n_frames = 2  # increase to 3 if still slow
 last_alert_time = None
 
 # =====================================
@@ -99,7 +103,7 @@ while True:
 
     frame_count += 1
 
-    # Skip every other frame (reduce CPU)
+    # Skip every other frame to reduce CPU load
     if frame_count % process_every_n_frames != 0:
         cv2.imshow("CCTV Camera", frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -144,7 +148,7 @@ while True:
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8,
                         (0, 255, 0), 2)
 
-            # 🚨 Stranger logic
+            # 🚨 Stranger detected
             if name == "Stranger":
                 now = datetime.now()
 
