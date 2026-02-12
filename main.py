@@ -24,7 +24,7 @@ bucket = storage.bucket()
 print("✅ Firebase connected")
 
 # =====================================
-# 🔥 LOAD KNOWN FACES FROM 'events'
+# 🔥 LOAD KNOWN FACES FROM events
 # =====================================
 
 known_face_encodings = []
@@ -49,10 +49,9 @@ for doc in docs:
             image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
 
             if image is None:
-                print("❌ Failed to decode image")
                 continue
 
-            # Resize large images for faster encoding
+            # Resize large images before encoding
             h, w = image.shape[:2]
             if w > 800:
                 scale = 800 / w
@@ -65,11 +64,9 @@ for doc in docs:
                 known_face_encodings.append(encodings[0])
                 known_face_names.append(name)
                 print(f"✅ Loaded {name}")
-            else:
-                print("❌ No face found in image")
 
         except Exception as e:
-            print(f"❌ Error loading {name}: {e}")
+            print(f"Error loading {name}: {e}")
 
 print("✅ All known faces loaded")
 print("-----------------------------------")
@@ -87,16 +84,34 @@ picam2.start()
 print("📷 Camera started")
 
 # =====================================
-# 🔥 MAIN LOOP (Per Frame Detection)
+# 🔥 PERFORMANCE SETTINGS
 # =====================================
 
+frame_count = 0
+process_every_n_frames = 2
 last_alert_time = None
+
+# =====================================
+# 🔥 MAIN LOOP
+# =====================================
 
 while True:
     frame = picam2.capture_array()
 
-    # Resize for faster processing
-    small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+    # Fix blue tint (XBGR → BGR)
+    frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+
+    frame_count += 1
+
+    # Skip some frames to reduce CPU usage
+    if frame_count % process_every_n_frames != 0:
+        cv2.imshow("CCTV Camera", frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+        continue
+
+    # Smaller resize for speed
+    small_frame = cv2.resize(frame, (0, 0), fx=0.4, fy=0.4)
     rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
 
     face_locations = face_recognition.face_locations(rgb_frame, model="hog")
@@ -121,12 +136,12 @@ while True:
                 if matches[best_match_index]:
                     name = known_face_names[best_match_index]
 
-            # Scale back coordinates
+            # Scale coordinates back
             top, right, bottom, left = face_location
-            top *= 2
-            right *= 2
-            bottom *= 2
-            left *= 2
+            top = int(top / 0.4)
+            right = int(right / 0.4)
+            bottom = int(bottom / 0.4)
+            left = int(left / 0.4)
 
             cv2.rectangle(frame, (left, top), (right, bottom),
                           (0, 255, 0), 2)
