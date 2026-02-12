@@ -5,7 +5,6 @@ import firebase_admin
 import requests
 import os
 from datetime import datetime
-from picamera2 import Picamera2
 from firebase_admin import credentials, firestore, storage
 
 # =====================================
@@ -36,14 +35,11 @@ docs = db.collection("events").stream()
 
 for doc in docs:
     data = doc.to_dict()
-
     name = data.get("name")
     image_url = data.get("imageUrl")
 
     if name and image_url:
         try:
-            print(f"Downloading image for {name}...")
-
             response = requests.get(image_url)
             image_array = np.frombuffer(response.content, np.uint8)
             image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
@@ -51,7 +47,7 @@ for doc in docs:
             if image is None:
                 continue
 
-            # Resize large images before encoding
+            # Resize large images
             h, w = image.shape[:2]
             if w > 800:
                 scale = 800 / w
@@ -72,16 +68,15 @@ print("✅ All known faces loaded")
 print("-----------------------------------")
 
 # =====================================
-# 📷 CAMERA SETUP
+# 📷 UGREEN USB CAMERA SETUP
 # =====================================
 
-picam2 = Picamera2()
-picam2.configure(picam2.create_preview_configuration(
-    main={"size": (640, 480)}
-))
-picam2.start()
+video_capture = cv2.VideoCapture(0)  # change to 1 if needed
 
-print("📷 Camera started")
+video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+print("📷 UGREEN Webcam started")
 
 # =====================================
 # 🔥 PERFORMANCE SETTINGS
@@ -96,21 +91,21 @@ last_alert_time = None
 # =====================================
 
 while True:
-    frame = picam2.capture_array()
+    ret, frame = video_capture.read()
 
-    # Fix blue tint (XBGR → BGR)
-    frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+    if not ret:
+        print("Failed to grab frame")
+        break
 
     frame_count += 1
 
-    # Skip some frames to reduce CPU usage
+    # Skip every other frame to reduce CPU load
     if frame_count % process_every_n_frames != 0:
         cv2.imshow("CCTV Camera", frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
         continue
 
-    # Smaller resize for speed
     small_frame = cv2.resize(frame, (0, 0), fx=0.4, fy=0.4)
     rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
 
@@ -136,7 +131,6 @@ while True:
                 if matches[best_match_index]:
                     name = known_face_names[best_match_index]
 
-            # Scale coordinates back
             top, right, bottom, left = face_location
             top = int(top / 0.4)
             right = int(right / 0.4)
@@ -149,7 +143,6 @@ while True:
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8,
                         (0, 255, 0), 2)
 
-            # 🚨 Stranger detected
             if name == "Stranger":
                 now = datetime.now()
 
@@ -185,5 +178,5 @@ while True:
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
+video_capture.release()
 cv2.destroyAllWindows()
-picam2.stop()
