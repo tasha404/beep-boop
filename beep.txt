@@ -1,68 +1,12 @@
+>>> %Run main.py
 ✅ Firebase connected
-🔄 Loading family members...
+🔄 Loading known faces...
 ✅ All known faces loaded
 -----------------------------------
-[1:40:35.441994451] [3447]  INFO Camera camera_manager.cpp:340 libcamera v0.6.0+rpt20251202
-[1:40:35.515222309] [3462]  INFO IPAProxy ipa_proxy.cpp:180 Using tuning file /usr/share/libcamera/ipa/rpi/vc4/imx708.json
-[1:40:35.522665980] [3462]  INFO Camera camera_manager.cpp:223 Adding camera '/base/soc/i2c0mux/i2c@1/imx708@1a' for pipeline handler rpi/vc4
-[1:40:35.522905606] [3462]  INFO RPI vc4.cpp:445 Registered camera /base/soc/i2c0mux/i2c@1/imx708@1a to Unicam device /dev/media0 and ISP device /dev/media2
-[1:40:35.522978938] [3462]  INFO RPI pipeline_base.cpp:1111 Using configuration file '/usr/share/libcamera/pipeline/rpi/vc4/rpi_apps.yaml'
-[1:40:35.532624856] [3447]  INFO Camera camera.cpp:1215 configuring streams: (0) 640x480-XBGR8888/sRGB (1) 1536x864-SBGGR10_CSI2P/RAW
-[1:40:35.533178422] [3462]  INFO RPI vc4.cpp:620 Sensor: /base/soc/i2c0mux/i2c@1/imx708@1a - Selected sensor format: 1536x864-SBGGR10_1X10/RAW - Selected unicam format: 1536x864-pBAA/RAW
-📷 Camera started
-⚠ Stranger detected!
-Traceback (most recent call last):
-  File "/home/tasha_-03/.local/lib/python3.13/site-packages/google/cloud/storage/blob.py", line 2835, in _prep_and_do_upload
-    created_json = self._do_upload(
-  File "/home/tasha_-03/.local/lib/python3.13/site-packages/google/cloud/storage/blob.py", line 2630, in _do_upload
-    response = self._do_multipart_upload(
-  File "/home/tasha_-03/.local/lib/python3.13/site-packages/google/cloud/storage/blob.py", line 2061, in _do_multipart_upload
-    response = upload.transmit(
-  File "/home/tasha_-03/.local/lib/python3.13/site-packages/google/cloud/storage/_media/requests/upload.py", line 162, in transmit
-    return _request_helpers.wait_and_retry(retriable_request, self._retry_strategy)
-  File "/home/tasha_-03/.local/lib/python3.13/site-packages/google/cloud/storage/_media/requests/_request_helpers.py", line 107, in wait_and_retry
-    return func()
-  File "/home/tasha_-03/.local/lib/python3.13/site-packages/google/api_core/retry/retry_unary.py", line 294, in retry_wrapped_func
-    return retry_target(
-  File "/home/tasha_-03/.local/lib/python3.13/site-packages/google/api_core/retry/retry_unary.py", line 156, in retry_target
-    next_sleep = _retry_error_helper(
-  File "/home/tasha_-03/.local/lib/python3.13/site-packages/google/api_core/retry/retry_base.py", line 214, in _retry_error_helper
-    raise final_exc from source_exc
-  File "/home/tasha_-03/.local/lib/python3.13/site-packages/google/api_core/retry/retry_unary.py", line 147, in retry_target
-    result = target()
-  File "/home/tasha_-03/.local/lib/python3.13/site-packages/google/cloud/storage/_media/requests/upload.py", line 158, in retriable_request
-    self._process_response(result)
-  File "/home/tasha_-03/.local/lib/python3.13/site-packages/google/cloud/storage/_media/_upload.py", line 135, in _process_response
-    _helpers.require_status_code(response, (http.client.OK,), self._get_status_code)
-  File "/home/tasha_-03/.local/lib/python3.13/site-packages/google/cloud/storage/_media/_helpers.py", line 105, in require_status_code
-    raise InvalidResponse(
-google.cloud.storage.exceptions.InvalidResponse: ('Request failed with status code', 404, 'Expected one of', <HTTPStatus.OK: 200>)
+[ WARN:0@36.922] global cap_gstreamer.cpp:1777 open OpenCV | GStreamer warning: Cannot query video position: status=0, value=-1, duration=-1
+📷 UGREEN Webcam started
 
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "/home/tasha_-03/Downloads/main.py", line 129, in <module>
-    blob.upload_from_filename(filename)
-  File "/home/tasha_-03/.local/lib/python3.13/site-packages/google/cloud/storage/blob.py", line 3198, in upload_from_filename
-    self._handle_filename_and_upload(
-  File "/home/tasha_-03/.local/lib/python3.13/site-packages/google/cloud/storage/blob.py", line 3048, in _handle_filename_and_upload
-    self._prep_and_do_upload(
-  File "/home/tasha_-03/.local/lib/python3.13/site-packages/google/cloud/storage/blob.py", line 2853, in _prep_and_do_upload
-    _raise_from_invalid_response(exc)
-  File "/home/tasha_-03/.local/lib/python3.13/site-packages/google/cloud/storage/blob.py", line 5158, in _raise_from_invalid_response
-    raise exceptions.from_http_status(response.status_code, message, response=response)
-google.api_core.exceptions.NotFound: 404 POST https://storage.googleapis.com/upload/storage/v1/b/fyp2-92b3f.firebasestorage.com/o?uploadType=multipart: {
-  "error": {
-    "code": 404,
-    "message": "The specified bucket does not exist.",
-    "errors": [
-      {
-        "message": "The specified bucket does not exist.",
-        "domain": "global",
-        "reason": "notFound"
-      }
-    ]
-  }
-}
-: ('Request failed with status code', 404, 'Expected one of', <HTTPStatus.OK: 200>)
+(python3:4380): GStreamer-CRITICAL **: 19:50:11.482: gst_sample_get_caps: assertion 'GST_IS_SAMPLE (sample)' failed
+[ERROR:0@111.934] global cap_gstreamer.cpp:934 retrieveVideoFrame GStreamer: gst_sample_get_caps() returns NULL
+Failed to grab frame
 >>> 
