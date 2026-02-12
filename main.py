@@ -86,9 +86,7 @@ print("📷 UGREEN Webcam started (/dev/video2)")
 # =====================================
 
 frame_count = 0
-process_every_n_frames = 3
-encode_every_n_detections = 2
-detection_counter = 0
+encode_every_n_frames = 3
 last_alert_time = None
 
 # =====================================
@@ -102,33 +100,31 @@ while True:
         print("Failed to grab frame")
         break
 
-    # Fix mirror (remove selfie inversion)
+    # Fix mirror effect
     frame = cv2.flip(frame, 1)
 
     frame_count += 1
 
-    # Skip frames for smoother performance
-    if frame_count % process_every_n_frames != 0:
-        cv2.imshow("CCTV Camera", frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-        continue
-
+    # Resize for detection
     small_frame = cv2.resize(frame, (0, 0), fx=0.3, fy=0.3)
     rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
 
     face_locations = face_recognition.face_locations(rgb_frame, model="hog")
 
-    if len(face_locations) > 0:
+    # Always draw boxes
+    for face_location in face_locations:
+        scale_back = 1 / 0.3
+        top, right, bottom, left = face_location
+        top = int(top * scale_back)
+        right = int(right * scale_back)
+        bottom = int(bottom * scale_back)
+        left = int(left * scale_back)
 
-        detection_counter += 1
+        cv2.rectangle(frame, (left, top), (right, bottom),
+                      (0, 255, 0), 2)
 
-        # Encode only every 2 detections (major lag reduction)
-        if detection_counter % encode_every_n_detections != 0:
-            cv2.imshow("CCTV Camera", frame)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-            continue
+    # Encode only every few frames (performance control)
+    if frame_count % encode_every_n_frames == 0 and len(face_locations) > 0:
 
         face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
 
@@ -149,7 +145,6 @@ while True:
                 if matches[best_match_index]:
                     name = known_face_names[best_match_index]
 
-            # Scale back coordinates
             scale_back = 1 / 0.3
             top, right, bottom, left = face_location
             top = int(top * scale_back)
@@ -157,8 +152,6 @@ while True:
             bottom = int(bottom * scale_back)
             left = int(left * scale_back)
 
-            cv2.rectangle(frame, (left, top), (right, bottom),
-                          (0, 255, 0), 2)
             cv2.putText(frame, name, (left, top - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6,
                         (0, 255, 0), 2)
