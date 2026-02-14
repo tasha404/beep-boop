@@ -8,19 +8,19 @@ from datetime import datetime
 from firebase_admin import credentials, firestore, storage
 
 # =====================================
-# 🔥 FIREBASE SETUP
+# 🔥 FIREBASE SETUP (SAFE INIT)
 # =====================================
 
-cred = credentials.Certificate("firebase_key.json")
-
-firebase_admin.initialize_app(cred, {
-    'storageBucket': 'fyp2-92b3f.firebasestorage.app'
-})
+if not firebase_admin._apps:
+    cred = credentials.Certificate("firebase_key.json")
+    firebase_admin.initialize_app(cred, {
+        'storageBucket': 'fyp2-92b3f.firebasestorage.app'
+    })
 
 db = firestore.client()
 bucket = storage.bucket()
 
-print("Firebase connected")
+print("✅ Firebase connected")
 
 # =====================================
 # 🔥 LOAD REGISTERED FAMILY MEMBERS
@@ -35,9 +35,8 @@ docs = db.collection("family_members").stream()
 
 for doc in docs:
     data = doc.to_dict()
-
     name = data.get("name")
-    image_url = data.get("image_url")   # <-- matches your Firestore
+    image_url = data.get("image_url")
 
     if name and image_url:
         try:
@@ -48,7 +47,6 @@ for doc in docs:
             if image is None:
                 continue
 
-            # Resize if too large
             h, w = image.shape[:2]
             if w > 600:
                 scale = 600 / w
@@ -60,28 +58,28 @@ for doc in docs:
             if len(encodings) > 0:
                 known_face_encodings.append(encodings[0])
                 known_face_names.append(name)
-                print(f"Loaded {name}")
+                print(f"✔ Loaded {name}")
 
         except Exception as e:
-            print(f"Error loading {name}: {e}")
+            print(f"❌ Error loading {name}: {e}")
 
 print("Total known faces:", len(known_face_encodings))
 print("-----------------------------------")
 
 # =====================================
-# 📷 UGREEN WEBCAM SETUP
+# 📷 WEBCAM SETUP
 # =====================================
 
 video_capture = cv2.VideoCapture("/dev/video2", cv2.CAP_V4L)
 
 if not video_capture.isOpened():
-    print("Cannot open UGREEN webcam")
+    print("❌ Cannot open webcam")
     exit()
 
 video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
 video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
 
-print("Webcam started")
+print("📷 Webcam started")
 
 # =====================================
 # ⚡ PERFORMANCE SETTINGS
@@ -90,6 +88,54 @@ print("Webcam started")
 frame_count = 0
 encode_every_n_frames = 3
 last_alert_time = None
+alert_cooldown_seconds = 5
+
+# =====================================
+# 🚨 FUNCTION: SEND ALERT TO FIREBASE
+# =====================================
+
+def send_stranger_alert(frame):
+    global last_alert_time
+
+    now = datetime.now()
+
+    if last_alert_time is not None:
+        time_diff = (now - last_alert_time).seconds
+        if time_diff < alert_cooldown_seconds:
+            return
+
+    timestamp_string = now.strftime("%Y%m%d_%H%M%S")
+    filename = f"stranger_{timestamp_string}.jpg"
+
+    cv2.imwrite(filename, frame)
+
+    try:
+        # Upload to Firebase Storage
+        blob = bucket.blob(f"strangers/{filename}")
+        blob.upload_from_filename(filename)
+        blob.make_public()
+
+        image_url = blob.public_url
+
+        # Save to Firestore (CORRECT STRUCTURE)
+        db.collection("alerts").add({
+            "type": "stranger",
+            "title": "Stranger Detected",
+            "timestamp": firestore.SERVER_TIMESTAMP,
+            "status": "unread",
+            "image_url": image_url
+        })
+
+        print("🚨 Stranger alert sent to Firebase")
+
+    except Exception as e:
+        print("❌ Error sending alert:", e)
+
+    finally:
+        if os.path.exists(filename):
+            os.remove(filename)
+
+    last_alert_time = now
 
 # =====================================
 # 🔥 MAIN LOOP
@@ -102,90 +148,69 @@ while True:
         print("Failed to grab frame")
         break
 
-    # Remove mirror effect
     frame = cv2.flip(frame, 1)
-
     frame_count += 1
 
-    # Resize for detection
     small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
     rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
 
     face_locations = face_recognition.face_locations(rgb_frame, model="hog")
 
-    # Always draw face box
+    # Draw face boxes
     for face_location in face_locations:
-        scale_back = 1 / 0.5
+        scale_back = 2
         top, right, bottom, left = face_location
-        top = int(top * scale_back)
-        right = int(right * scale_back)
-        bottom = int(bottom * scale_back)
-        left = int(left * scale_back)
+        cv2.rectangle(
+            frame,
+            (left * scale_back, top * scale_back),
+            (right * scale_back, bottom * scale_back),
+            (0, 255, 0),
+            2
+        )
 
-        cv2.rectangle(frame, (left, top), (right, bottom),
-                      (0, 255, 0), 2)
-
-    # Only encode every few frames (performance control)
+    # Only encode every few frames
     if frame_count % encode_every_n_frames == 0 and len(face_locations) > 0:
 
         face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
 
         for face_encoding, face_location in zip(face_encodings, face_locations):
 
-            matches = face_recognition.compare_faces(
-                known_face_encodings,
-                face_encoding,
-                tolerance=0.5   # Adjust if needed
-            )
-
             name = "Stranger"
 
-            face_distances = face_recognition.face_distance(
-                known_face_encodings,
-                face_encoding
+            if len(known_face_encodings) > 0:
+                matches = face_recognition.compare_faces(
+                    known_face_encodings,
+                    face_encoding,
+                    tolerance=0.5
+                )
+
+                face_distances = face_recognition.face_distance(
+                    known_face_encodings,
+                    face_encoding
+                )
+
+                if len(face_distances) > 0:
+                    best_match_index = np.argmin(face_distances)
+                    if matches[best_match_index]:
+                        name = known_face_names[best_match_index]
+
+            scale_back = 2
+            top, right, bottom, left = face_location
+
+            cv2.putText(
+                frame,
+                name,
+                (left * scale_back, top * scale_back - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (0, 255, 0),
+                2
             )
 
-            if len(face_distances) > 0:
-                best_match_index = np.argmin(face_distances)
-                if matches[best_match_index]:
-                    name = known_face_names[best_match_index]
-
-            scale_back = 1 / 0.5
-            top, right, bottom, left = face_location
-            top = int(top * scale_back)
-            right = int(right * scale_back)
-            bottom = int(bottom * scale_back)
-            left = int(left * scale_back)
-
-            cv2.putText(frame, name, (left, top - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6,
-                        (0, 255, 0), 2)
-
-            # 🚨 Stranger alert
+            # 🚨 Stranger detected
             if name == "Stranger":
-                now = datetime.now()
-
-                if last_alert_time is None or (now - last_alert_time).seconds > 5:
-
-                    timestamp = now.strftime("%Y%m%d_%H%M%S")
-                    filename = f"stranger_{timestamp}.jpg"
-
-                    cv2.imwrite(filename, frame)
-
-                    print("Stranger detected!")
-
-                    blob = bucket.blob(f"strangers/{filename}")
-                    blob.upload_from_filename(filename)
-                    blob.make_public()
-
-                    db.collection("alerts").add({
-                        "type": "Stranger Detected",
-                        "time": timestamp,
-                        "image_url": blob.public_url
-                    })
-
-                    os.remove(filename)
-                    last_alert_time = now
+                print("⚠ Stranger detected!")
+                send_stranger_alert(frame)
 
     cv2.imshow("CCTV Camera", frame)
 
