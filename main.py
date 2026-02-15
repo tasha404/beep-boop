@@ -6,6 +6,8 @@ import requests
 import os
 from datetime import datetime
 from firebase_admin import credentials, firestore, storage
+from flask import Flask, Response
+import threading
 
 # =====================================
 # 🔥 FIREBASE SETUP
@@ -29,8 +31,6 @@ print("✅ Firebase connected")
 known_face_encodings = []
 known_face_names = []
 
-print("Loading family members...")
-
 docs = db.collection("family_members").stream()
 
 for doc in docs:
@@ -44,9 +44,6 @@ for doc in docs:
             image_array = np.frombuffer(response.content, np.uint8)
             image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
 
-            if image is None:
-                continue
-
             rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             encodings = face_recognition.face_encodings(rgb_image)
 
@@ -55,42 +52,37 @@ for doc in docs:
                 known_face_names.append(name)
                 print(f"✔ Loaded {name}")
 
-        except Exception as e:
-            print(f"❌ Error loading {name}: {e}")
-
-print("Total known faces:", len(known_face_encodings))
-print("-----------------------------------")
+        except:
+            pass
 
 # =====================================
-# 📷 WEBCAM SETUP
+# 📷 CAMERA SETUP (OPEN ONLY ONCE)
 # =====================================
 
-video_capture = cv2.VideoCapture(0, cv2.CAP_V4L2)
+camera = cv2.VideoCapture(0, cv2.CAP_V4L2)
 
-if not video_capture.isOpened():
-    print("❌ Cannot open webcam")
+camera.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+
+if not camera.isOpened():
+    print("❌ Camera failed to open")
     exit()
 
-video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
-video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
-
-print("📷 Webcam started")
+print("📷 Camera started")
 
 # =====================================
-# ⚡ PERFORMANCE SETTINGS
+# 🔥 DETECTION VARIABLES
 # =====================================
 
-frame_count = 0
-encode_every_n_frames = 5
+last_name = None
 last_alert_time = None
 alert_cooldown_seconds = 5
 
-# Stable recognition memory
-last_name = None
-last_face_location = None
+output_frame = None
+lock = threading.Lock()
 
 # =====================================
-# 🚨 SEND ALERT FUNCTION
+# 🚨 SEND ALERT
 # =====================================
 
 def send_stranger_alert(frame):
@@ -105,52 +97,36 @@ def send_stranger_alert(frame):
     filename = f"stranger_{now.strftime('%Y%m%d_%H%M%S')}.jpg"
     cv2.imwrite(filename, frame)
 
-    try:
-        blob = bucket.blob(f"strangers/{filename}")
-        blob.upload_from_filename(filename)
-        blob.make_public()
+    blob = bucket.blob(f"strangers/{filename}")
+    blob.upload_from_filename(filename)
+    blob.make_public()
 
-        db.collection("alerts").add({
-            "type": "stranger",
-            "title": "Stranger Detected",
-            "timestamp": firestore.SERVER_TIMESTAMP,
-            "status": "unread",
-            "image_url": blob.public_url
-        })
+    db.collection("alerts").add({
+        "type": "stranger",
+        "title": "Stranger Detected",
+        "timestamp": firestore.SERVER_TIMESTAMP,
+        "status": "unread",
+        "image_url": blob.public_url
+    })
 
-        print("🚨 Stranger alert sent to Firebase")
-
-    except Exception as e:
-        print("❌ Firebase error:", e)
-
-    finally:
-        if os.path.exists(filename):
-            os.remove(filename)
-
+    print("🚨 Stranger alert sent")
+    os.remove(filename)
     last_alert_time = now
 
 # =====================================
-# 🔥 MAIN LOOP
+# 🎥 AI DETECTION THREAD
 # =====================================
 
-while True:
-    ret, frame = video_capture.read()
+def detection_loop():
+    global output_frame, last_name
 
-    if not ret:
-        print("❌ Frame read failed")
-        break
+    while True:
+        ret, frame = camera.read()
+        if not ret:
+            continue
 
-    frame = cv2.flip(frame, 1)
-    frame_count += 1
-
-    small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
-    rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
-
-    face_locations = face_recognition.face_locations(rgb_frame, model="hog")
-
-    # Run encoding only every few frames
-    if frame_count % encode_every_n_frames == 0 and face_locations:
-
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        face_locations = face_recognition.face_locations(rgb_frame, model="hog")
         face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
 
         for face_encoding, face_location in zip(face_encodings, face_locations):
@@ -174,9 +150,7 @@ while True:
                     if matches[best_match_index]:
                         name = known_face_names[best_match_index]
 
-            # Only print when identity changes
             if name != last_name:
-
                 if name == "Stranger":
                     print("⚠ Stranger detected!")
                     send_stranger_alert(frame)
@@ -185,35 +159,46 @@ while True:
 
                 last_name = name
 
-            last_face_location = face_location
+            top, right, bottom, left = face_location
+            cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
+            cv2.putText(frame, name, (left, top - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
-    # Draw stable box
-    if last_face_location:
-        top, right, bottom, left = last_face_location
-        scale = 2
+        with lock:
+            output_frame = frame.copy()
 
-        cv2.rectangle(
-            frame,
-            (left * scale, top * scale),
-            (right * scale, bottom * scale),
-            (0, 255, 0),
-            2
-        )
+# =====================================
+# 🌐 FLASK STREAMING
+# =====================================
 
-        cv2.putText(
-            frame,
-            last_name if last_name else "Scanning...",
-            (left * scale, top * scale - 10),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
-            (0, 255, 0),
-            2
-        )
+app = Flask(__name__)
 
-    cv2.imshow("CCTV Camera", frame)
+def generate_frames():
+    global output_frame
 
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+    while True:
+        with lock:
+            if output_frame is None:
+                continue
 
-video_capture.release()
-cv2.destroyAllWindows()
+            ret, buffer = cv2.imencode('.jpg', output_frame)
+            frame = buffer.tobytes()
+
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+
+@app.route('/video')
+def video():
+    return Response(generate_frames(),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
+
+# =====================================
+# 🚀 START SYSTEM
+# =====================================
+
+if __name__ == "__main__":
+    t = threading.Thread(target=detection_loop)
+    t.daemon = True
+    t.start()
+
+    app.run(host="0.0.0.0", port=5000, threaded=True)
