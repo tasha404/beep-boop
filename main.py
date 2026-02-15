@@ -51,8 +51,8 @@ for doc in docs:
                 known_face_encodings.append(encodings[0])
                 known_face_names.append(name)
                 print(f"✔ Loaded {name}")
-        except Exception as e:
-            print("Face load error:", e)
+        except:
+            pass
 
 # =====================================
 # 📷 CAMERA SETUP
@@ -81,6 +81,11 @@ display_frame = None
 stream_frame = None
 
 frame_count = 0
+
+# Persistent face display
+last_face_location = None
+last_face_time = 0
+face_display_duration = 1.0  # seconds
 
 # =====================================
 # 🚨 ALERT FUNCTION
@@ -119,11 +124,13 @@ def send_stranger_alert(frame):
         print("Alert error:", e)
 
 # =====================================
-# 🎥 DETECTION LOOP (SAFE VERSION)
+# 🎥 DETECTION LOOP
 # =====================================
 
 def detection_loop():
-    global display_frame, stream_frame, last_name, frame_count
+    global display_frame, stream_frame
+    global last_name, frame_count
+    global last_face_location, last_face_time
 
     while True:
         try:
@@ -133,55 +140,58 @@ def detection_loop():
 
             frame = cv2.flip(frame, 1)
 
-            # Always update stream frame immediately
+            # Always update stream frame
             stream_frame = frame.copy()
 
             frame_count += 1
 
-            # Only detect every 8 frames (reduces CPU + heat)
-            if frame_count % 8 != 0:
-                display_frame = frame.copy()
-                continue
+            # Only detect every 8 frames
+            if frame_count % 8 == 0:
 
-            # Resize smaller for detection
-            small = cv2.resize(frame, (0, 0), fx=0.30, fy=0.30)
-            rgb_frame = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
+                small = cv2.resize(frame, (0, 0), fx=0.30, fy=0.30)
+                rgb_frame = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
 
-            face_locations = face_recognition.face_locations(rgb_frame, model="hog")
-            face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
+                face_locations = face_recognition.face_locations(rgb_frame, model="hog")
+                face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
 
-            for face_encoding, face_location in zip(face_encodings, face_locations):
+                for face_encoding, face_location in zip(face_encodings, face_locations):
 
-                name = "Stranger"
+                    name = "Stranger"
 
-                if known_face_encodings:
-                    matches = face_recognition.compare_faces(
-                        known_face_encodings,
-                        face_encoding,
-                        tolerance=0.5
-                    )
+                    if known_face_encodings:
+                        matches = face_recognition.compare_faces(
+                            known_face_encodings,
+                            face_encoding,
+                            tolerance=0.5
+                        )
 
-                    face_distances = face_recognition.face_distance(
-                        known_face_encodings,
-                        face_encoding
-                    )
+                        face_distances = face_recognition.face_distance(
+                            known_face_encodings,
+                            face_encoding
+                        )
 
-                    if len(face_distances) > 0:
-                        best_match_index = np.argmin(face_distances)
-                        if matches[best_match_index]:
-                            name = known_face_names[best_match_index]
+                        if len(face_distances) > 0:
+                            best_match_index = np.argmin(face_distances)
+                            if matches[best_match_index]:
+                                name = known_face_names[best_match_index]
 
-                if name != last_name:
-                    if name == "Stranger":
-                        print("⚠ Stranger detected!")
-                        send_stranger_alert(frame)
-                    else:
-                        print(f"✔ {name} detected")
+                    if name != last_name:
+                        if name == "Stranger":
+                            print("⚠ Stranger detected!")
+                            send_stranger_alert(frame)
+                        else:
+                            print(f"✔ {name} detected")
 
-                    last_name = name
+                        last_name = name
+
+                    last_face_location = face_location
+                    last_face_time = time.time()
+
+            # Draw persistent face box
+            if last_face_location and (time.time() - last_face_time < face_display_duration):
 
                 scale = int(1 / 0.30)
-                top, right, bottom, left = face_location
+                top, right, bottom, left = last_face_location
 
                 cv2.rectangle(
                     frame,
@@ -193,7 +203,7 @@ def detection_loop():
 
                 cv2.putText(
                     frame,
-                    name,
+                    last_name,
                     (left * scale, top * scale - 10),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.6,
@@ -203,14 +213,14 @@ def detection_loop():
 
             display_frame = frame.copy()
 
-            time.sleep(0.005)  # prevents CPU overload
+            time.sleep(0.005)
 
         except Exception as e:
-            print("⚠ Detection error:", e)
+            print("Detection error:", e)
             time.sleep(0.1)
 
 # =====================================
-# 🌐 FLASK STREAMING (NO BUFFER GROWTH)
+# 🌐 FLASK STREAMING
 # =====================================
 
 app = Flask(__name__)
@@ -256,12 +266,10 @@ def video():
 
 if __name__ == "__main__":
 
-    # Start detection thread
     t = threading.Thread(target=detection_loop)
     t.daemon = True
     t.start()
 
-    # Start Flask server in background
     flask_thread = threading.Thread(
         target=lambda: app.run(
             host="0.0.0.0",
@@ -274,7 +282,6 @@ if __name__ == "__main__":
     flask_thread.daemon = True
     flask_thread.start()
 
-    # Show detection on Raspberry Pi display
     while True:
         if display_frame is not None:
             cv2.imshow("CCTV Detection (Raspberry Pi)", display_frame)
