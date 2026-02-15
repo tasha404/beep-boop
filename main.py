@@ -25,7 +25,7 @@ bucket = storage.bucket()
 print("✅ Firebase connected")
 
 # =====================================
-# 🔥 LOAD REGISTERED FAMILY MEMBERS
+# 🔥 LOAD FAMILY MEMBERS
 # =====================================
 
 known_face_encodings = []
@@ -43,10 +43,9 @@ for doc in docs:
             response = requests.get(image_url)
             image_array = np.frombuffer(response.content, np.uint8)
             image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
-
             rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            encodings = face_recognition.face_encodings(rgb_image)
 
+            encodings = face_recognition.face_encodings(rgb_image)
             if encodings:
                 known_face_encodings.append(encodings[0])
                 known_face_names.append(name)
@@ -56,11 +55,10 @@ for doc in docs:
             pass
 
 # =====================================
-# 📷 CAMERA SETUP (OPEN ONLY ONCE)
+# 📷 CAMERA SETUP
 # =====================================
 
 camera = cv2.VideoCapture(0, cv2.CAP_V4L2)
-
 camera.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
 camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
 
@@ -71,18 +69,20 @@ if not camera.isOpened():
 print("📷 Camera started")
 
 # =====================================
-# 🔥 DETECTION VARIABLES
+# 🔥 VARIABLES
 # =====================================
 
 last_name = None
 last_alert_time = None
 alert_cooldown_seconds = 5
 
-output_frame = None
+display_frame = None   # Frame with detection overlay
+stream_frame = None    # Clean frame for mobile
+
 lock = threading.Lock()
 
 # =====================================
-# 🚨 SEND ALERT
+# 🚨 ALERT FUNCTION
 # =====================================
 
 def send_stranger_alert(frame):
@@ -114,16 +114,21 @@ def send_stranger_alert(frame):
     last_alert_time = now
 
 # =====================================
-# 🎥 AI DETECTION THREAD
+# 🎥 DETECTION LOOP
 # =====================================
 
 def detection_loop():
-    global output_frame, last_name
+    global display_frame, stream_frame, last_name
 
     while True:
         ret, frame = camera.read()
         if not ret:
             continue
+
+        frame = cv2.flip(frame, 1)
+
+        # Save clean frame for mobile
+        clean_copy = frame.copy()
 
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         face_locations = face_recognition.face_locations(rgb_frame, model="hog")
@@ -160,28 +165,31 @@ def detection_loop():
                 last_name = name
 
             top, right, bottom, left = face_location
+
+            # Draw ONLY on display frame
             cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
             cv2.putText(frame, name, (left, top - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
         with lock:
-            output_frame = frame.copy()
+            display_frame = frame.copy()
+            stream_frame = clean_copy.copy()
 
 # =====================================
-# 🌐 FLASK STREAMING
+# 🌐 FLASK STREAMING (CLEAN FRAME)
 # =====================================
 
 app = Flask(__name__)
 
 def generate_frames():
-    global output_frame
+    global stream_frame
 
     while True:
         with lock:
-            if output_frame is None:
+            if stream_frame is None:
                 continue
 
-            ret, buffer = cv2.imencode('.jpg', output_frame)
+            ret, buffer = cv2.imencode('.jpg', stream_frame)
             frame = buffer.tobytes()
 
         yield (b'--frame\r\n'
@@ -197,8 +205,27 @@ def video():
 # =====================================
 
 if __name__ == "__main__":
+
+    # Start AI thread
     t = threading.Thread(target=detection_loop)
     t.daemon = True
     t.start()
 
-    app.run(host="0.0.0.0", port=5000, threaded=True)
+    # Start Flask in another thread
+    flask_thread = threading.Thread(
+        target=lambda: app.run(host="0.0.0.0", port=5000, threaded=True, use_reloader=False)
+    )
+    flask_thread.daemon = True
+    flask_thread.start()
+
+    # Show detection window on Raspberry Pi display
+    while True:
+        with lock:
+            if display_frame is not None:
+                cv2.imshow("CCTV Detection (Raspberry Pi)", display_frame)
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    camera.release()
+    cv2.destroyAllWindows()
