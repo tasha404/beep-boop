@@ -1,5 +1,22 @@
-tasha_-03@strangerpi:~/Downloads $ python3 stream.py
 ✅ Firebase connected
 ✔ Loaded Natasha Nadia
-[ WARN:0@34.721] global ./modules/videoio/src/cap_v4l.cpp (902) open VIDEOIO(V4L2:/dev/video0): can't open camera by index
-❌ Camera failed to open
+📷 Camera started
+ * Serving Flask app 'main'
+ * Debug mode: off
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://172.20.10.3:5000
+Press CTRL+C to quit
+✔ Natasha Nadia detected
+⚠ Stranger detected!
+Exception in thread Thread-4 (detection_loop):
+Traceback (most recent call last):
+  File "/usr/lib/python3.11/threading.py", line 1038, in _bootstrap_inner
+    self.run()
+  File "/usr/lib/python3.11/threading.py", line 975, in run
+    self._target(*self._args, **self._kwargs)
+  File "/home/tasha_-03/Downloads/main.py", line 141, in detection_loop
+    send_stranger_alert(frame)
+    ^^^^^^^^^^^^^^^^^^^
+NameError: name 'send_stranger_alert' is not defined
