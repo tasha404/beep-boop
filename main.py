@@ -70,7 +70,7 @@ print("-----------------------------------")
 # 📷 WEBCAM SETUP
 # =====================================
 
-video_capture = cv2.VideoCapture("/dev/video2", cv2.CAP_V4L)
+video_capture = cv2.VideoCapture("/dev/video0", cv2.CAP_V4L2)
 
 if not video_capture.isOpened():
     print("❌ Cannot open webcam")
@@ -219,3 +219,4 @@ while True:
 
 video_capture.release()
 cv2.destroyAllWindows()
+
