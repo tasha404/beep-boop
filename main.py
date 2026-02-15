@@ -8,7 +8,7 @@ from datetime import datetime
 from firebase_admin import credentials, firestore, storage
 
 # =====================================
-# 🔥 FIREBASE SETUP (SAFE INIT)
+# 🔥 FIREBASE SETUP
 # =====================================
 
 if not firebase_admin._apps:
@@ -47,15 +47,10 @@ for doc in docs:
             if image is None:
                 continue
 
-            h, w = image.shape[:2]
-            if w > 600:
-                scale = 600 / w
-                image = cv2.resize(image, (int(w * scale), int(h * scale)))
-
             rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             encodings = face_recognition.face_encodings(rgb_image)
 
-            if len(encodings) > 0:
+            if encodings:
                 known_face_encodings.append(encodings[0])
                 known_face_names.append(name)
                 print(f"✔ Loaded {name}")
@@ -70,7 +65,7 @@ print("-----------------------------------")
 # 📷 WEBCAM SETUP
 # =====================================
 
-video_capture = cv2.VideoCapture("/dev/video0", cv2.CAP_V4L2)
+video_capture = cv2.VideoCapture(0, cv2.CAP_V4L2)
 
 if not video_capture.isOpened():
     print("❌ Cannot open webcam")
@@ -86,12 +81,16 @@ print("📷 Webcam started")
 # =====================================
 
 frame_count = 0
-encode_every_n_frames = 3
+encode_every_n_frames = 5
 last_alert_time = None
 alert_cooldown_seconds = 5
 
+# Smooth display memory
+last_name = "Scanning..."
+last_face_location = None
+
 # =====================================
-# 🚨 FUNCTION: SEND ALERT TO FIREBASE
+# 🚨 FUNCTION: SEND ALERT
 # =====================================
 
 def send_stranger_alert(frame):
@@ -99,37 +98,30 @@ def send_stranger_alert(frame):
 
     now = datetime.now()
 
-    if last_alert_time is not None:
-        time_diff = (now - last_alert_time).seconds
-        if time_diff < alert_cooldown_seconds:
+    if last_alert_time:
+        if (now - last_alert_time).seconds < alert_cooldown_seconds:
             return
 
-    timestamp_string = now.strftime("%Y%m%d_%H%M%S")
-    filename = f"stranger_{timestamp_string}.jpg"
-
+    filename = f"stranger_{now.strftime('%Y%m%d_%H%M%S')}.jpg"
     cv2.imwrite(filename, frame)
 
     try:
-        # Upload to Firebase Storage
         blob = bucket.blob(f"strangers/{filename}")
         blob.upload_from_filename(filename)
         blob.make_public()
 
-        image_url = blob.public_url
-
-        # Save to Firestore (CORRECT STRUCTURE)
         db.collection("alerts").add({
             "type": "stranger",
             "title": "Stranger Detected",
             "timestamp": firestore.SERVER_TIMESTAMP,
             "status": "unread",
-            "image_url": image_url
+            "image_url": blob.public_url
         })
 
-        print("🚨 Stranger alert sent to Firebase")
+        print("🚨 Stranger alert sent")
 
     except Exception as e:
-        print("❌ Error sending alert:", e)
+        print("❌ Firebase error:", e)
 
     finally:
         if os.path.exists(filename):
@@ -145,7 +137,7 @@ while True:
     ret, frame = video_capture.read()
 
     if not ret:
-        print("Failed to grab frame")
+        print("❌ Frame read failed")
         break
 
     frame = cv2.flip(frame, 1)
@@ -156,20 +148,8 @@ while True:
 
     face_locations = face_recognition.face_locations(rgb_frame, model="hog")
 
-    # Draw face boxes
-    for face_location in face_locations:
-        scale_back = 2
-        top, right, bottom, left = face_location
-        cv2.rectangle(
-            frame,
-            (left * scale_back, top * scale_back),
-            (right * scale_back, bottom * scale_back),
-            (0, 255, 0),
-            2
-        )
-
-    # Only encode every few frames
-    if frame_count % encode_every_n_frames == 0 and len(face_locations) > 0:
+    # Only encode every few frames (reduces flicker + CPU)
+    if frame_count % encode_every_n_frames == 0 and face_locations:
 
         face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
 
@@ -177,7 +157,7 @@ while True:
 
             name = "Stranger"
 
-            if len(known_face_encodings) > 0:
+            if known_face_encodings:
                 matches = face_recognition.compare_faces(
                     known_face_encodings,
                     face_encoding,
@@ -194,23 +174,35 @@ while True:
                     if matches[best_match_index]:
                         name = known_face_names[best_match_index]
 
-            scale_back = 2
-            top, right, bottom, left = face_location
+            last_name = name
+            last_face_location = face_location
 
-            cv2.putText(
-                frame,
-                name,
-                (left * scale_back, top * scale_back - 10),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (0, 255, 0),
-                2
-            )
-
-            # 🚨 Stranger detected
             if name == "Stranger":
                 print("⚠ Stranger detected!")
                 send_stranger_alert(frame)
+
+    # Draw stable box
+    if last_face_location:
+        top, right, bottom, left = last_face_location
+        scale = 2
+
+        cv2.rectangle(
+            frame,
+            (left * scale, top * scale),
+            (right * scale, bottom * scale),
+            (0, 255, 0),
+            2
+        )
+
+        cv2.putText(
+            frame,
+            last_name,
+            (left * scale, top * scale - 10),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (0, 255, 0),
+            2
+        )
 
     cv2.imshow("CCTV Camera", frame)
 
@@ -219,4 +211,3 @@ while True:
 
 video_capture.release()
 cv2.destroyAllWindows()
-
