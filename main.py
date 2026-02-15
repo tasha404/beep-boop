@@ -55,12 +55,12 @@ for doc in docs:
             pass
 
 # =====================================
-# 📷 CAMERA SETUP
+# 📷 CAMERA SETUP (Higher Detail for CCTV)
 # =====================================
 
 camera = cv2.VideoCapture(0, cv2.CAP_V4L2)
-camera.set(cv2.CAP_PROP_FRAME_WIDTH, 240)
-camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 180)
+camera.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
 camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
 if not camera.isOpened():
@@ -82,10 +82,9 @@ stream_frame = None
 
 frame_count = 0
 
-# Persistent face display
 last_face_location = None
 last_face_time = 0
-face_display_duration = 1.0  # seconds
+face_display_duration = 1.2  # slightly longer persistence
 
 # =====================================
 # 🚨 ALERT FUNCTION
@@ -124,7 +123,7 @@ def send_stranger_alert(frame):
         print("Alert error:", e)
 
 # =====================================
-# 🎥 DETECTION LOOP
+# 🎥 DETECTION LOOP (CCTV DISTANCE OPTIMIZED)
 # =====================================
 
 def detection_loop():
@@ -140,19 +139,27 @@ def detection_loop():
 
             frame = cv2.flip(frame, 1)
 
-            # Always update stream frame
+            # Update stream frame immediately
             stream_frame = frame.copy()
 
             frame_count += 1
 
-            # Only detect every 8 frames
+            # Detect every 8 frames (balance performance)
             if frame_count % 8 == 0:
 
-                small = cv2.resize(frame, (0, 0), fx=0.30, fy=0.30)
+                # Larger detection scale for distance
+                small = cv2.resize(frame, (0, 0), fx=0.40, fy=0.40)
                 rgb_frame = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
 
-                face_locations = face_recognition.face_locations(rgb_frame, model="hog")
-                face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
+                face_locations = face_recognition.face_locations(
+                    rgb_frame,
+                    model="hog"
+                )
+
+                face_encodings = face_recognition.face_encodings(
+                    rgb_frame,
+                    face_locations
+                )
 
                 for face_encoding, face_location in zip(face_encodings, face_locations):
 
@@ -187,10 +194,10 @@ def detection_loop():
                     last_face_location = face_location
                     last_face_time = time.time()
 
-            # Draw persistent face box
+            # Persistent box drawing
             if last_face_location and (time.time() - last_face_time < face_display_duration):
 
-                scale = int(1 / 0.30)
+                scale = int(1 / 0.40)
                 top, right, bottom, left = last_face_location
 
                 cv2.rectangle(
