@@ -85,12 +85,12 @@ encode_every_n_frames = 5
 last_alert_time = None
 alert_cooldown_seconds = 5
 
-# Smooth display memory
-last_name = "Scanning..."
+# Stable recognition memory
+last_name = None
 last_face_location = None
 
 # =====================================
-# 🚨 FUNCTION: SEND ALERT
+# 🚨 SEND ALERT FUNCTION
 # =====================================
 
 def send_stranger_alert(frame):
@@ -118,7 +118,7 @@ def send_stranger_alert(frame):
             "image_url": blob.public_url
         })
 
-        print("🚨 Stranger alert sent")
+        print("🚨 Stranger alert sent to Firebase")
 
     except Exception as e:
         print("❌ Firebase error:", e)
@@ -148,7 +148,7 @@ while True:
 
     face_locations = face_recognition.face_locations(rgb_frame, model="hog")
 
-    # Only encode every few frames (reduces flicker + CPU)
+    # Run encoding only every few frames
     if frame_count % encode_every_n_frames == 0 and face_locations:
 
         face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
@@ -174,12 +174,18 @@ while True:
                     if matches[best_match_index]:
                         name = known_face_names[best_match_index]
 
-            last_name = name
-            last_face_location = face_location
+            # Only print when identity changes
+            if name != last_name:
 
-            if name == "Stranger":
-                print("⚠ Stranger detected!")
-                send_stranger_alert(frame)
+                if name == "Stranger":
+                    print("⚠ Stranger detected!")
+                    send_stranger_alert(frame)
+                else:
+                    print(f"✔ {name} detected")
+
+                last_name = name
+
+            last_face_location = face_location
 
     # Draw stable box
     if last_face_location:
@@ -196,7 +202,7 @@ while True:
 
         cv2.putText(
             frame,
-            last_name,
+            last_name if last_name else "Scanning...",
             (left * scale, top * scale - 10),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.6,
