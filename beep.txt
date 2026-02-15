@@ -1,36 +1,7 @@
-tasha_-03@rasp-berry01:~ $ v4l2-ctl --list-devices
-bcm2835-codec-decode (platform:bcm2835-codec):
-	/dev/video10
-	/dev/video11
-	/dev/video12
-	/dev/video18
-	/dev/video31
-
-bcm2835-isp (platform:bcm2835-isp):
-	/dev/video13
-	/dev/video14
-	/dev/video15
-	/dev/video16
-	/dev/video20
-	/dev/video21
-	/dev/video22
-	/dev/video23
-	/dev/media0
-	/dev/media1
-
-unicam (platform:fe801000.csi):
-	/dev/video0
-	/dev/video1
-	/dev/media3
-
-rpi-hevc-dec (platform:rpi-hevc-dec):
-	/dev/video19
-	/dev/media2
-
-UGREEN Camera 2K: UGREEN Camera (usb-0000:01:00.0-1.3):
-	/dev/video2
-	/dev/video3
-	/dev/media5
-
-bcm2835-codec (vchiq:bcm2835-codec):
-	/dev/media4
+>>> %Run camtest.py
+[ WARN:0@3.352] global ./modules/videoio/src/cap_gstreamer.cpp (2401) handleMessage OpenCV | GStreamer warning: Embedded video playback halted; module v4l2src0 reported: Cannot identify device '/dev/video0'.
+[ WARN:0@3.353] global ./modules/videoio/src/cap_gstreamer.cpp (1356) open OpenCV | GStreamer warning: unable to start pipeline
+[ WARN:0@3.353] global ./modules/videoio/src/cap_gstreamer.cpp (862) isPipelinePlaying OpenCV | GStreamer warning: GStreamer: pipeline have not been created
+[ WARN:0@3.353] global ./modules/videoio/src/cap_v4l.cpp (902) open VIDEOIO(V4L2:/dev/video0): can't open camera by index
+False
+>>> 
