@@ -55,7 +55,7 @@ for doc in docs:
             print("Error loading member:", e)
 
 # =====================================
-# 📷 CAMERA SETUP (720p Capture)
+# 📷 CAMERA SETUP (720p)
 # =====================================
 
 camera = cv2.VideoCapture(0)
@@ -82,11 +82,6 @@ MIN_FACE_SIZE = 40
 
 last_alert_time = None
 alert_cooldown_seconds = 10
-
-last_face_locations = []
-last_face_names = []
-last_face_time = 0
-face_display_duration = 1.2
 
 stream_frame = None
 frame_count = 0
@@ -133,20 +128,17 @@ def send_stranger_alert(frame):
 
 def detection_loop():
     global stream_frame, frame_count
-    global last_face_locations, last_face_names
-    global last_face_time
 
     while True:
         ret, frame = camera.read()
         if not ret:
             continue
 
-        stream_frame = frame.copy()
         frame_count += 1
 
         if frame_count % DETECT_EVERY == 0:
 
-            # Resize for processing only
+            # Resize only for processing
             small_frame = cv2.resize(frame, (PROCESS_WIDTH, PROCESS_HEIGHT))
             rgb_small = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
 
@@ -159,8 +151,6 @@ def detection_loop():
                 rgb_small,
                 face_locations
             )
-
-            face_names = []
 
             scale_x = frame.shape[1] / PROCESS_WIDTH
             scale_y = frame.shape[0] / PROCESS_HEIGHT
@@ -176,65 +166,39 @@ def detection_loop():
                 name = "Stranger"
 
                 if known_face_encodings:
-                    face_distances = face_recognition.face_distance(
+                    distances = face_recognition.face_distance(
                         known_face_encodings,
                         face_encoding
                     )
 
-                    best_match_index = np.argmin(face_distances)
-                    best_distance = face_distances[best_match_index]
+                    best_index = np.argmin(distances)
+                    best_distance = distances[best_index]
 
                     print("Distance:", round(best_distance, 3))
 
                     if best_distance < TOLERANCE:
-                        name = known_face_names[best_match_index]
+                        name = known_face_names[best_index]
 
-                face_names.append(name)
-
-                if name == "Stranger":
-                    send_stranger_alert(frame)
-
-            last_face_locations = face_locations
-            last_face_names = face_names
-            last_face_time = time.time()
-
-        # Draw on FULL 720p frame
-        if time.time() - last_face_time < face_display_duration:
-
-            scale_x = frame.shape[1] / PROCESS_WIDTH
-            scale_y = frame.shape[0] / PROCESS_HEIGHT
-
-            for (top, right, bottom, left), name in zip(
-                last_face_locations, last_face_names
-            ):
-
+                # Scale back to 720p
                 top = int(top * scale_y)
                 bottom = int(bottom * scale_y)
                 left = int(left * scale_x)
                 right = int(right * scale_x)
 
-                cv2.rectangle(
-                    frame,
-                    (left, top),
-                    (right, bottom),
-                    (0, 255, 0),
-                    2
-                )
+                # Draw on FULL frame
+                cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
+                cv2.putText(frame, name, (left, top - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
 
-                cv2.putText(
-                    frame,
-                    name,
-                    (left, top - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8,
-                    (0, 255, 0),
-                    2
-                )
+                if name == "Stranger":
+                    send_stranger_alert(frame)
+
+        stream_frame = frame
 
         time.sleep(0.003)
 
 # =====================================
-# 🌐 FLASK STREAM (720p)
+# 🌐 FLASK STREAM
 # =====================================
 
 app = Flask(__name__)
@@ -268,7 +232,7 @@ def video():
     )
 
 # =====================================
-# 🚀 START SYSTEM
+# 🚀 START SYSTEM (Display + Stream)
 # =====================================
 
 if __name__ == "__main__":
@@ -277,4 +241,27 @@ if __name__ == "__main__":
     t.daemon = True
     t.start()
 
-    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
+    flask_thread = threading.Thread(
+        target=lambda: app.run(
+            host="0.0.0.0",
+            port=5000,
+            debug=False,
+            use_reloader=False,
+            threaded=True
+        )
+    )
+    flask_thread.daemon = True
+    flask_thread.start()
+
+    cv2.namedWindow("CCTV Detection", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("CCTV Detection", 960, 540)
+
+    while True:
+        if stream_frame is not None:
+            cv2.imshow("CCTV Detection", stream_frame)
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    camera.release()
+    cv2.destroyAllWindows()
