@@ -55,12 +55,12 @@ for doc in docs:
             print("Error loading member:", e)
 
 # =====================================
-# 📷 CAMERA SETUP (Optimized for Pi 4B)
+# 📷 CAMERA SETUP (USB Webcam - Far Optimized)
 # =====================================
 
 camera = cv2.VideoCapture(0)
-camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+camera.set(cv2.CAP_PROP_FRAME_WIDTH, 800)
+camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 600)
 camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
 if not camera.isOpened():
@@ -73,22 +73,21 @@ print("📷 Camera started")
 # 🔥 VARIABLES
 # =====================================
 
-last_name = None
+RESIZE_SCALE = 0.8      # Higher = better far detection
+TOLERANCE = 0.6         # Slightly relaxed
+DETECT_EVERY = 6        # Balance smoothness
+
+last_face_locations = []
+last_face_names = []
+last_face_time = 0
+face_display_duration = 1.2
+
 last_alert_time = None
 alert_cooldown_seconds = 10
 
 display_frame = None
 stream_frame = None
-
 frame_count = 0
-
-last_face_locations = []
-last_face_names = []
-last_face_time = 0
-face_display_duration = 1.5
-
-RESIZE_SCALE = 0.75   # better for distance detection
-TOLERANCE = 0.55      # slightly relaxed for far faces
 
 # =====================================
 # 🚨 ALERT FUNCTION
@@ -96,7 +95,6 @@ TOLERANCE = 0.55      # slightly relaxed for far faces
 
 def send_stranger_alert(frame):
     global last_alert_time
-
     now = datetime.now()
 
     if last_alert_time:
@@ -119,9 +117,9 @@ def send_stranger_alert(frame):
             "image_url": blob.public_url
         })
 
-        print("🚨 Stranger alert sent")
         os.remove(filename)
         last_alert_time = now
+        print("🚨 Stranger alert sent")
 
     except Exception as e:
         print("Alert error:", e)
@@ -140,24 +138,21 @@ def detection_loop():
         if not ret:
             continue
 
-        frame = cv2.flip(frame, 1)
         stream_frame = frame.copy()
-
         frame_count += 1
 
-        # Detect every 5 frames (better detection rate)
-        if frame_count % 5 == 0:
+        if frame_count % DETECT_EVERY == 0:
 
             small = cv2.resize(frame, (0, 0), fx=RESIZE_SCALE, fy=RESIZE_SCALE)
-            rgb_frame = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
+            rgb_small = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
 
             face_locations = face_recognition.face_locations(
-                rgb_frame,
+                rgb_small,
                 model="hog"
             )
 
             face_encodings = face_recognition.face_encodings(
-                rgb_frame,
+                rgb_small,
                 face_locations
             )
 
@@ -187,14 +182,12 @@ def detection_loop():
 
                 if name == "Stranger":
                     send_stranger_alert(frame)
-                else:
-                    print(f"✔ {name} detected")
 
             last_face_locations = face_locations
             last_face_names = face_names
             last_face_time = time.time()
 
-        # Draw boxes persistently
+        # Draw boxes
         if time.time() - last_face_time < face_display_duration:
 
             scale = int(1 / RESIZE_SCALE)
@@ -215,16 +208,15 @@ def detection_loop():
                     name,
                     (left * scale, top * scale - 10),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
+                    0.6,
                     (0, 255, 0),
                     2
                 )
 
-        display_frame = frame.copy()
-        time.sleep(0.01)
+        display_frame = frame
 
 # =====================================
-# 🌐 FLASK STREAMING
+# 🌐 FLASK STREAM
 # =====================================
 
 app = Flask(__name__)
@@ -239,7 +231,7 @@ def generate_frames():
         ret, buffer = cv2.imencode(
             '.jpg',
             stream_frame,
-            [int(cv2.IMWRITE_JPEG_QUALITY), 40]
+            [int(cv2.IMWRITE_JPEG_QUALITY), 50]
         )
 
         if not ret:
@@ -263,31 +255,8 @@ def video():
 
 if __name__ == "__main__":
 
-    cv2.namedWindow("CCTV Detection (Raspberry Pi)", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("CCTV Detection (Raspberry Pi)", 900, 700)
-
     t = threading.Thread(target=detection_loop)
     t.daemon = True
     t.start()
 
-    flask_thread = threading.Thread(
-        target=lambda: app.run(
-            host="0.0.0.0",
-            port=5000,
-            debug=False,
-            use_reloader=False,
-            threaded=True
-        )
-    )
-    flask_thread.daemon = True
-    flask_thread.start()
-
-    while True:
-        if display_frame is not None:
-            cv2.imshow("CCTV Detection (Raspberry Pi)", display_frame)
-
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-    camera.release()
-    cv2.destroyAllWindows()
+    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
