@@ -51,16 +51,16 @@ for doc in docs:
                 known_face_encodings.append(encodings[0])
                 known_face_names.append(name)
                 print(f"✔ Loaded {name}")
-        except:
-            pass
+        except Exception as e:
+            print("Error loading member:", e)
 
 # =====================================
-# 📷 CAMERA SETUP (Higher Detail for CCTV)
+# 📷 CAMERA SETUP (Optimized for Pi 4B)
 # =====================================
 
-camera = cv2.VideoCapture(0, cv2.CAP_V4L2)
-camera.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
-camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+camera = cv2.VideoCapture(0)
+camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
 if not camera.isOpened():
@@ -75,16 +75,20 @@ print("📷 Camera started")
 
 last_name = None
 last_alert_time = None
-alert_cooldown_seconds = 5
+alert_cooldown_seconds = 10
 
 display_frame = None
 stream_frame = None
 
 frame_count = 0
 
-last_face_location = None
+last_face_locations = []
+last_face_names = []
 last_face_time = 0
-face_display_duration = 1.2  # slightly longer persistence
+face_display_duration = 1.5
+
+RESIZE_SCALE = 0.75   # better for distance detection
+TOLERANCE = 0.55      # slightly relaxed for far faces
 
 # =====================================
 # 🚨 ALERT FUNCTION
@@ -93,13 +97,13 @@ face_display_duration = 1.2  # slightly longer persistence
 def send_stranger_alert(frame):
     global last_alert_time
 
+    now = datetime.now()
+
+    if last_alert_time:
+        if (now - last_alert_time).seconds < alert_cooldown_seconds:
+            return
+
     try:
-        now = datetime.now()
-
-        if last_alert_time:
-            if (now - last_alert_time).seconds < alert_cooldown_seconds:
-                return
-
         filename = f"stranger_{now.strftime('%Y%m%d_%H%M%S')}.jpg"
         cv2.imwrite(filename, frame)
 
@@ -123,83 +127,81 @@ def send_stranger_alert(frame):
         print("Alert error:", e)
 
 # =====================================
-# 🎥 DETECTION LOOP (CCTV DISTANCE OPTIMIZED)
+# 🎥 DETECTION LOOP
 # =====================================
 
 def detection_loop():
     global display_frame, stream_frame
-    global last_name, frame_count
-    global last_face_location, last_face_time
+    global last_face_locations, last_face_names
+    global last_face_time, frame_count
 
     while True:
-        try:
-            ret, frame = camera.read()
-            if not ret:
-                continue
+        ret, frame = camera.read()
+        if not ret:
+            continue
 
-            frame = cv2.flip(frame, 1)
+        frame = cv2.flip(frame, 1)
+        stream_frame = frame.copy()
 
-            # Update stream frame immediately
-            stream_frame = frame.copy()
+        frame_count += 1
 
-            frame_count += 1
+        # Detect every 5 frames (better detection rate)
+        if frame_count % 5 == 0:
 
-            # Detect every 8 frames (balance performance)
-            if frame_count % 8 == 0:
+            small = cv2.resize(frame, (0, 0), fx=RESIZE_SCALE, fy=RESIZE_SCALE)
+            rgb_frame = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
 
-                # Larger detection scale for distance
-                small = cv2.resize(frame, (0, 0), fx=0.40, fy=0.40)
-                rgb_frame = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
+            face_locations = face_recognition.face_locations(
+                rgb_frame,
+                model="hog"
+            )
 
-                face_locations = face_recognition.face_locations(
-                    rgb_frame,
-                    model="hog"
-                )
+            face_encodings = face_recognition.face_encodings(
+                rgb_frame,
+                face_locations
+            )
 
-                face_encodings = face_recognition.face_encodings(
-                    rgb_frame,
-                    face_locations
-                )
+            face_names = []
 
-                for face_encoding, face_location in zip(face_encodings, face_locations):
+            for face_encoding in face_encodings:
+                name = "Stranger"
 
-                    name = "Stranger"
+                if known_face_encodings:
+                    matches = face_recognition.compare_faces(
+                        known_face_encodings,
+                        face_encoding,
+                        tolerance=TOLERANCE
+                    )
 
-                    if known_face_encodings:
-                        matches = face_recognition.compare_faces(
-                            known_face_encodings,
-                            face_encoding,
-                            tolerance=0.5
-                        )
+                    face_distances = face_recognition.face_distance(
+                        known_face_encodings,
+                        face_encoding
+                    )
 
-                        face_distances = face_recognition.face_distance(
-                            known_face_encodings,
-                            face_encoding
-                        )
+                    if len(face_distances) > 0:
+                        best_match_index = np.argmin(face_distances)
+                        if matches[best_match_index]:
+                            name = known_face_names[best_match_index]
 
-                        if len(face_distances) > 0:
-                            best_match_index = np.argmin(face_distances)
-                            if matches[best_match_index]:
-                                name = known_face_names[best_match_index]
+                face_names.append(name)
 
-                    if name != last_name:
-                        if name == "Stranger":
-                            print("⚠ Stranger detected!")
-                            send_stranger_alert(frame)
-                        else:
-                            print(f"✔ {name} detected")
+                if name == "Stranger":
+                    send_stranger_alert(frame)
+                else:
+                    print(f"✔ {name} detected")
 
-                        last_name = name
+            last_face_locations = face_locations
+            last_face_names = face_names
+            last_face_time = time.time()
 
-                    last_face_location = face_location
-                    last_face_time = time.time()
+        # Draw boxes persistently
+        if time.time() - last_face_time < face_display_duration:
 
-            # Persistent box drawing
-            if last_face_location and (time.time() - last_face_time < face_display_duration):
+            scale = int(1 / RESIZE_SCALE)
 
-                scale = int(1 / 0.40)
-                top, right, bottom, left = last_face_location
-
+            for (top, right, bottom, left), name in zip(
+                last_face_locations, last_face_names
+            ):
                 cv2.rectangle(
                     frame,
                     (left * scale, top * scale),
@@ -210,21 +212,16 @@ def detection_loop():
 
                 cv2.putText(
                     frame,
-                    last_name,
+                    name,
                     (left * scale, top * scale - 10),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
+                    0.7,
                     (0, 255, 0),
                     2
                 )
 
-            display_frame = frame.copy()
-
-            time.sleep(0.005)
-
-        except Exception as e:
-            print("Detection error:", e)
-            time.sleep(0.1)
+        display_frame = frame.copy()
+        time.sleep(0.01)
 
 # =====================================
 # 🌐 FLASK STREAMING
@@ -239,20 +236,17 @@ def generate_frames():
         if stream_frame is None:
             continue
 
-        frame = stream_frame.copy()
-
         ret, buffer = cv2.imencode(
             '.jpg',
-            frame,
-            [int(cv2.IMWRITE_JPEG_QUALITY), 35]
+            stream_frame,
+            [int(cv2.IMWRITE_JPEG_QUALITY), 40]
         )
 
         if not ret:
             continue
 
         yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n'
-               b'Cache-Control: no-cache\r\n\r\n' +
+               b'Content-Type: image/jpeg\r\n\r\n' +
                buffer.tobytes() +
                b'\r\n')
 
@@ -260,11 +254,7 @@ def generate_frames():
 def video():
     return Response(
         generate_frames(),
-        mimetype='multipart/x-mixed-replace; boundary=frame',
-        headers={
-            "Cache-Control": "no-cache",
-            "Pragma": "no-cache",
-        }
+        mimetype='multipart/x-mixed-replace; boundary=frame'
     )
 
 # =====================================
@@ -272,6 +262,9 @@ def video():
 # =====================================
 
 if __name__ == "__main__":
+
+    cv2.namedWindow("CCTV Detection (Raspberry Pi)", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("CCTV Detection (Raspberry Pi)", 900, 700)
 
     t = threading.Thread(target=detection_loop)
     t.daemon = True
