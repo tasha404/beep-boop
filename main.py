@@ -7,7 +7,6 @@ import os
 import time
 from datetime import datetime
 from firebase_admin import credentials, firestore, storage
-import threading
 
 # =====================================
 # 🔥 FIREBASE SETUP
@@ -54,16 +53,15 @@ for doc in docs:
             pass
 
 # =====================================
-# 📷 CAMERA SETUP (720p)
+# 📷 CAMERA SETUP
 # =====================================
 
 camera = cv2.VideoCapture(0)
 camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
 camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
 if not camera.isOpened():
-    print("❌ Camera failed to open")
+    print("❌ Camera failed")
     exit()
 
 print("📷 Camera started")
@@ -74,16 +72,16 @@ print("📷 Camera started")
 
 PROCESS_WIDTH = 640
 PROCESS_HEIGHT = 360
-
 TOLERANCE = 0.6
-DETECT_EVERY = 5
+DETECT_EVERY = 6
 MIN_FACE_SIZE = 40
+
+frame_count = 0
+last_face_locations = []
+last_face_names = []
 
 last_alert_time = None
 alert_cooldown_seconds = 10
-
-frame_count = 0
-display_frame = None
 
 # =====================================
 # 🚨 ALERT FUNCTION
@@ -118,94 +116,87 @@ def send_stranger_alert(frame):
         last_alert_time = now
         print("🚨 Stranger alert sent")
 
-    except Exception as e:
-        print("Alert error:", e)
+    except:
+        pass
 
 # =====================================
-# 🎥 DETECTION LOOP
+# 🚀 MAIN LOOP (NO THREADING)
 # =====================================
 
-def detection_loop():
-    global frame_count, display_frame
+cv2.namedWindow("CCTV Camera", cv2.WINDOW_NORMAL)
+cv2.resizeWindow("CCTV Camera", 960, 540)
 
-    while True:
-        ret, frame = camera.read()
-        if not ret:
-            continue
+while True:
+    ret, frame = camera.read()
+    if not ret:
+        continue
 
-        frame_count += 1
+    frame_count += 1
 
-        if frame_count % DETECT_EVERY == 0:
+    # Detect only every few frames
+    if frame_count % DETECT_EVERY == 0:
 
-            small = cv2.resize(frame, (PROCESS_WIDTH, PROCESS_HEIGHT))
-            rgb_small = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
+        small = cv2.resize(frame, (PROCESS_WIDTH, PROCESS_HEIGHT))
+        rgb_small = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
 
-            face_locations = face_recognition.face_locations(rgb_small)
+        face_locations = face_recognition.face_locations(rgb_small)
+        face_encodings = face_recognition.face_encodings(
+            rgb_small, face_locations
+        )
 
-            face_encodings = face_recognition.face_encodings(
-                rgb_small, face_locations
-            )
+        last_face_locations = []
+        last_face_names = []
 
-            scale_x = frame.shape[1] / PROCESS_WIDTH
-            scale_y = frame.shape[0] / PROCESS_HEIGHT
+        scale_x = frame.shape[1] / PROCESS_WIDTH
+        scale_y = frame.shape[0] / PROCESS_HEIGHT
 
-            for (top, right, bottom, left), face_encoding in zip(
-                face_locations, face_encodings
-            ):
+        for (top, right, bottom, left), face_encoding in zip(
+            face_locations, face_encodings
+        ):
 
-                if (right - left) < MIN_FACE_SIZE:
-                    continue
+            if (right - left) < MIN_FACE_SIZE:
+                continue
 
-                name = "Stranger"
+            name = "Stranger"
 
-                if known_face_encodings:
-                    distances = face_recognition.face_distance(
-                        known_face_encodings,
-                        face_encoding
-                    )
-                    best_index = np.argmin(distances)
-                    if distances[best_index] < TOLERANCE:
-                        name = known_face_names[best_index]
+            if known_face_encodings:
+                distances = face_recognition.face_distance(
+                    known_face_encodings,
+                    face_encoding
+                )
 
-                # Scale to full frame
-                top = int(top * scale_y)
-                bottom = int(bottom * scale_y)
-                left = int(left * scale_x)
-                right = int(right * scale_x)
+                best_index = np.argmin(distances)
 
-                cv2.rectangle(frame, (left, top),
-                              (right, bottom), (0, 255, 0), 2)
+                if distances[best_index] < TOLERANCE:
+                    name = known_face_names[best_index]
 
-                cv2.putText(frame, name, (left, top - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            0.8, (0, 255, 0), 2)
+            # Scale back to 720p
+            top = int(top * scale_y)
+            bottom = int(bottom * scale_y)
+            left = int(left * scale_x)
+            right = int(right * scale_x)
 
-                if name == "Stranger":
-                    send_stranger_alert(frame)
+            last_face_locations.append((top, right, bottom, left))
+            last_face_names.append(name)
 
-        display_frame = frame
+            if name == "Stranger":
+                send_stranger_alert(frame)
 
-        time.sleep(0.003)
+    # Draw last known detections
+    for (top, right, bottom, left), name in zip(
+        last_face_locations, last_face_names
+    ):
+        cv2.rectangle(frame, (left, top),
+                      (right, bottom), (0, 255, 0), 2)
 
-# =====================================
-# 🚀 START SYSTEM (POPUP WINDOW)
-# =====================================
+        cv2.putText(frame, name, (left, top - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.8, (0, 255, 0), 2)
 
-if __name__ == "__main__":
+    cv2.imshow("CCTV Camera", frame)
 
-    t = threading.Thread(target=detection_loop)
-    t.daemon = True
-    t.start()
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
 
-    cv2.namedWindow("CCTV Camera", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("CCTV Camera", 960, 540)
-
-    while True:
-        if display_frame is not None:
-            cv2.imshow("CCTV Camera", display_frame)
-
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-    camera.release()
-    cv2.destroyAllWindows()
+camera.release()
+cv2.destroyAllWindows()
