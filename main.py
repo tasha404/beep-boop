@@ -55,37 +55,39 @@ for doc in docs:
             print("Error loading member:", e)
 
 # =====================================
-# 📷 CAMERA SETUP (USB Webcam - Far Optimized)
+# 📷 CAMERA SETUP (720p Capture)
 # =====================================
 
 camera = cv2.VideoCapture(0)
-camera.set(cv2.CAP_PROP_FRAME_WIDTH, 800)
-camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 600)
+camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
 if not camera.isOpened():
     print("❌ Camera failed to open")
     exit()
 
-print("📷 Camera started")
+print("📷 Camera started at 720p")
 
 # =====================================
-# 🔥 VARIABLES
+# ⚙ PARAMETERS
 # =====================================
 
-RESIZE_SCALE = 0.8      # Higher = better far detection
-TOLERANCE = 0.6         # Slightly relaxed
-DETECT_EVERY = 6        # Balance smoothness
+PROCESS_WIDTH = 640
+PROCESS_HEIGHT = 360
+
+TOLERANCE = 0.6
+DETECT_EVERY = 5
+MIN_FACE_SIZE = 40
+
+last_alert_time = None
+alert_cooldown_seconds = 10
 
 last_face_locations = []
 last_face_names = []
 last_face_time = 0
 face_display_duration = 1.2
 
-last_alert_time = None
-alert_cooldown_seconds = 10
-
-display_frame = None
 stream_frame = None
 frame_count = 0
 
@@ -95,6 +97,7 @@ frame_count = 0
 
 def send_stranger_alert(frame):
     global last_alert_time
+
     now = datetime.now()
 
     if last_alert_time:
@@ -129,9 +132,9 @@ def send_stranger_alert(frame):
 # =====================================
 
 def detection_loop():
-    global display_frame, stream_frame
+    global stream_frame, frame_count
     global last_face_locations, last_face_names
-    global last_face_time, frame_count
+    global last_face_time
 
     while True:
         ret, frame = camera.read()
@@ -143,8 +146,9 @@ def detection_loop():
 
         if frame_count % DETECT_EVERY == 0:
 
-            small = cv2.resize(frame, (0, 0), fx=RESIZE_SCALE, fy=RESIZE_SCALE)
-            rgb_small = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
+            # Resize for processing only
+            small_frame = cv2.resize(frame, (PROCESS_WIDTH, PROCESS_HEIGHT))
+            rgb_small = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
 
             face_locations = face_recognition.face_locations(
                 rgb_small,
@@ -158,25 +162,32 @@ def detection_loop():
 
             face_names = []
 
-            for face_encoding in face_encodings:
+            scale_x = frame.shape[1] / PROCESS_WIDTH
+            scale_y = frame.shape[0] / PROCESS_HEIGHT
+
+            for (top, right, bottom, left), face_encoding in zip(
+                face_locations, face_encodings
+            ):
+
+                face_width = right - left
+                if face_width < MIN_FACE_SIZE:
+                    continue
+
                 name = "Stranger"
 
                 if known_face_encodings:
-                    matches = face_recognition.compare_faces(
-                        known_face_encodings,
-                        face_encoding,
-                        tolerance=TOLERANCE
-                    )
-
                     face_distances = face_recognition.face_distance(
                         known_face_encodings,
                         face_encoding
                     )
 
-                    if len(face_distances) > 0:
-                        best_match_index = np.argmin(face_distances)
-                        if matches[best_match_index]:
-                            name = known_face_names[best_match_index]
+                    best_match_index = np.argmin(face_distances)
+                    best_distance = face_distances[best_match_index]
+
+                    print("Distance:", round(best_distance, 3))
+
+                    if best_distance < TOLERANCE:
+                        name = known_face_names[best_match_index]
 
                 face_names.append(name)
 
@@ -187,18 +198,25 @@ def detection_loop():
             last_face_names = face_names
             last_face_time = time.time()
 
-        # Draw boxes
+        # Draw on FULL 720p frame
         if time.time() - last_face_time < face_display_duration:
 
-            scale = int(1 / RESIZE_SCALE)
+            scale_x = frame.shape[1] / PROCESS_WIDTH
+            scale_y = frame.shape[0] / PROCESS_HEIGHT
 
             for (top, right, bottom, left), name in zip(
                 last_face_locations, last_face_names
             ):
+
+                top = int(top * scale_y)
+                bottom = int(bottom * scale_y)
+                left = int(left * scale_x)
+                right = int(right * scale_x)
+
                 cv2.rectangle(
                     frame,
-                    (left * scale, top * scale),
-                    (right * scale, bottom * scale),
+                    (left, top),
+                    (right, bottom),
                     (0, 255, 0),
                     2
                 )
@@ -206,17 +224,17 @@ def detection_loop():
                 cv2.putText(
                     frame,
                     name,
-                    (left * scale, top * scale - 10),
+                    (left, top - 10),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
+                    0.8,
                     (0, 255, 0),
                     2
                 )
 
-        display_frame = frame
+        time.sleep(0.003)
 
 # =====================================
-# 🌐 FLASK STREAM
+# 🌐 FLASK STREAM (720p)
 # =====================================
 
 app = Flask(__name__)
@@ -231,7 +249,7 @@ def generate_frames():
         ret, buffer = cv2.imencode(
             '.jpg',
             stream_frame,
-            [int(cv2.IMWRITE_JPEG_QUALITY), 50]
+            [int(cv2.IMWRITE_JPEG_QUALITY), 60]
         )
 
         if not ret:
