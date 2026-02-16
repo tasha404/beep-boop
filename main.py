@@ -7,7 +7,6 @@ import os
 import time
 from datetime import datetime
 from firebase_admin import credentials, firestore, storage
-from flask import Flask, Response
 import threading
 
 # =====================================
@@ -51,8 +50,8 @@ for doc in docs:
                 known_face_encodings.append(encodings[0])
                 known_face_names.append(name)
                 print(f"✔ Loaded {name}")
-        except Exception as e:
-            print("Error loading member:", e)
+        except:
+            pass
 
 # =====================================
 # 📷 CAMERA SETUP (720p)
@@ -67,7 +66,7 @@ if not camera.isOpened():
     print("❌ Camera failed to open")
     exit()
 
-print("📷 Camera started at 720p")
+print("📷 Camera started")
 
 # =====================================
 # ⚙ PARAMETERS
@@ -83,8 +82,8 @@ MIN_FACE_SIZE = 40
 last_alert_time = None
 alert_cooldown_seconds = 10
 
-stream_frame = None
 frame_count = 0
+display_frame = None
 
 # =====================================
 # 🚨 ALERT FUNCTION
@@ -127,7 +126,7 @@ def send_stranger_alert(frame):
 # =====================================
 
 def detection_loop():
-    global stream_frame, frame_count
+    global frame_count, display_frame
 
     while True:
         ret, frame = camera.read()
@@ -138,18 +137,13 @@ def detection_loop():
 
         if frame_count % DETECT_EVERY == 0:
 
-            # Resize only for processing
-            small_frame = cv2.resize(frame, (PROCESS_WIDTH, PROCESS_HEIGHT))
-            rgb_small = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
+            small = cv2.resize(frame, (PROCESS_WIDTH, PROCESS_HEIGHT))
+            rgb_small = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
 
-            face_locations = face_recognition.face_locations(
-                rgb_small,
-                model="hog"
-            )
+            face_locations = face_recognition.face_locations(rgb_small)
 
             face_encodings = face_recognition.face_encodings(
-                rgb_small,
-                face_locations
+                rgb_small, face_locations
             )
 
             scale_x = frame.shape[1] / PROCESS_WIDTH
@@ -159,8 +153,7 @@ def detection_loop():
                 face_locations, face_encodings
             ):
 
-                face_width = right - left
-                if face_width < MIN_FACE_SIZE:
+                if (right - left) < MIN_FACE_SIZE:
                     continue
 
                 name = "Stranger"
@@ -170,69 +163,32 @@ def detection_loop():
                         known_face_encodings,
                         face_encoding
                     )
-
                     best_index = np.argmin(distances)
-                    best_distance = distances[best_index]
-
-                    print("Distance:", round(best_distance, 3))
-
-                    if best_distance < TOLERANCE:
+                    if distances[best_index] < TOLERANCE:
                         name = known_face_names[best_index]
 
-                # Scale back to 720p
+                # Scale to full frame
                 top = int(top * scale_y)
                 bottom = int(bottom * scale_y)
                 left = int(left * scale_x)
                 right = int(right * scale_x)
 
-                # Draw on FULL frame
-                cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
+                cv2.rectangle(frame, (left, top),
+                              (right, bottom), (0, 255, 0), 2)
+
                 cv2.putText(frame, name, (left, top - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.8, (0, 255, 0), 2)
 
                 if name == "Stranger":
                     send_stranger_alert(frame)
 
-        stream_frame = frame
+        display_frame = frame
 
         time.sleep(0.003)
 
 # =====================================
-# 🌐 FLASK STREAM
-# =====================================
-
-app = Flask(__name__)
-
-def generate_frames():
-    global stream_frame
-
-    while True:
-        if stream_frame is None:
-            continue
-
-        ret, buffer = cv2.imencode(
-            '.jpg',
-            stream_frame,
-            [int(cv2.IMWRITE_JPEG_QUALITY), 60]
-        )
-
-        if not ret:
-            continue
-
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' +
-               buffer.tobytes() +
-               b'\r\n')
-
-@app.route('/video')
-def video():
-    return Response(
-        generate_frames(),
-        mimetype='multipart/x-mixed-replace; boundary=frame'
-    )
-
-# =====================================
-# 🚀 START SYSTEM (Display + Stream)
+# 🚀 START SYSTEM (POPUP WINDOW)
 # =====================================
 
 if __name__ == "__main__":
@@ -241,24 +197,12 @@ if __name__ == "__main__":
     t.daemon = True
     t.start()
 
-    flask_thread = threading.Thread(
-        target=lambda: app.run(
-            host="0.0.0.0",
-            port=5000,
-            debug=False,
-            use_reloader=False,
-            threaded=True
-        )
-    )
-    flask_thread.daemon = True
-    flask_thread.start()
-
-    cv2.namedWindow("CCTV Detection", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("CCTV Detection", 960, 540)
+    cv2.namedWindow("CCTV Camera", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("CCTV Camera", 960, 540)
 
     while True:
-        if stream_frame is not None:
-            cv2.imshow("CCTV Detection", stream_frame)
+        if display_frame is not None:
+            cv2.imshow("CCTV Camera", display_frame)
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
